@@ -1,0 +1,504 @@
+---
+title: "Tutoriel sur les tests multiples (et au-delà)"
+author: "Timothée Flutre"
+date: '`r as.character(format(Sys.Date(), format="%d/%m/%Y"))`'
+output:
+  beamer_presentation:
+    slide_level: 2
+    toc: true
+---
+
+<!--
+This R chunk is used to set up important options and load required packages.
+-->
+```{r setup, include=FALSE}
+R.v.maj <- as.numeric(R.version$major)
+R.v.min.1 <- as.numeric(strsplit(R.version$minor, "\\.")[[1]][1])
+if(R.v.maj < 2 || (R.v.maj == 2 && R.v.min.1 < 15))
+  stop("requires R >= 2.15", call.=FALSE)
+
+suppressPackageStartupMessages(library(knitr))
+opts_chunk$set(echo=TRUE, warning=TRUE, message=TRUE, cache=FALSE)
+
+suppressPackageStartupMessages(library(qvalue))
+```
+
+##
+
+Licence: CC BY-SA 4.0
+
+
+# Pré-requis
+
+## Philo de modélisation statistique en trois phrases
+
+> - Box (1987): "Essentially, all models are wrong, but some are useful."
+
+> - Kass (2011): "When we use a statistical model to make a statistical inference, we implicitly assert that the variation exhibited by data is captured reasonably well by the statistical model, so that the theoretical world corresponds reasonably well to the real world."
+
+> - Berger & Berry (1988): "It is not possible to provide an absolutely objective answer [to a statistical test]; the strength of the evidence will depend on the person interpreting the data."
+
+
+## Notations
+
+- données: variables observées, lettres romaines, $y, x$
+- paramètres: variables non-observées, lettres grecques, $\theta, \beta$
+- ensembles: majuscules, $\mathcal{D}$ (données) et $\Theta$ (paramètres)
+- vecteurs: en gras, $\boldsymbol{y}$, $\boldsymbol{\beta}$
+
+\medskip
+
+- vraisemblance: proba des données sachant les paramètres, mais fonction des paramètres, $\mathcal{L}(\Theta) = p(\mathcal{D} \, | \, \Theta)$
+- maximum de vraisemblance: pour estimer les paramètres, $\hat{\theta} = \text{argmax}_\theta \, \mathcal{L} \; \; \Leftrightarrow \; \; \frac{\partial \mathcal{L}}{\partial \theta}(\hat{\theta}) = 0$
+
+## Concrètement...
+
+```{r echo=FALSE}
+set.seed(1)
+y <- rnorm(n=3, mean=5, sd=1)
+```
+
+Simuler $Y \sim \mathcal{N}(\mu, \sigma^2)$ avec $\sigma^2 = 1$ renvoie $y_1$ = `r format(y[1], digits=3)`: que vaut $\mu$ ?
+
+$\mathcal{L}(\mu) = p(y_1 | \mu) = \frac{1}{\sqrt{2 \pi}} \exp \left( - \frac{(y_1 - \mu)^2}{2} \right)$
+
+\bigskip
+
+```{r ex_lik_y1, echo=FALSE, fig.height=6}
+x <- seq(from=-3, to=10, length.out=1000)
+plot(x=x, y=dnorm(x=x, mean=2, sd=1), type="l", col="blue",
+     main="", las=1, lwd=2,
+     xlab="y", ylab="densité de probabilité")
+points(x=x, y=dnorm(x=x, mean=5, sd=1), type="l", col="red", lwd=2)
+abline(v=0, lty=2)
+legend("topright", legend=c("mu=2", "mu=5"), col=c("blue", "red"), lty=1,
+       bty="n", cex=1.5, lwd=2)
+segments(x0=y[1], y0=0, x1=y[1], y1=dnorm(x=y[1], mean=5, sd=1))
+text(x=1.08*y[1], y=0.17, labels=expression(y[1]), cex=1.5)
+segments(x0=y[1], y0=dnorm(x=y[1], mean=2, sd=1),
+         x1=-5, y1=dnorm(x=y[1], mean=2, sd=1), col="blue")
+text(x=-2.1, y=0.35, labels=expression(paste("p(", y[1], " | ", mu == 5, ")",
+  sep="")), cex=1.5)
+segments(x0=y[1], y0=dnorm(x=y[1], mean=5, sd=1),
+         x1=-5, y1=dnorm(x=y[1], mean=5, sd=1), col="red")
+text(x=-2.1, y=0.05, labels=expression(paste("p(", y[1], " | ", mu == 1, ")",
+  sep="")), cex=1.5)
+```
+
+
+# Tester une seule "association potentielle"
+
+## Exemple 1
+
+On veut tester si le SNP chr3_716254\_A\_C est associé avec le caractère "rendement" au sein de $N$ variétés.
+
+- données $\mathcal{D}$: $(x_i,y_i)$ génotype et phénotype de la variété $i$
+- paramètres $\Theta$: $\mu$ moyenne globale, $\beta$ effet du génotype, $\sigma^2$ variance des erreurs
+- hypothèses: ...
+- vraisemblance $\mathcal{L}(\Theta) = p(\mathcal{D} | \Theta)$:
+
+$\forall i, \; y_i = \mu + \beta x_i + \epsilon_i$ avec $\epsilon_i \overset{iid}{\sim} \mathcal{N}(0, \sigma^2)$
+
+- estimer par maximum de vraisemblance l'effet du génotype au SNP sur le phénotype, $\hat{\beta}$, et son erreur standard, $s$
+
+
+## Exemple 2
+
+On veut tester si l'expression du gène MAP3 dans la variété Inadur change selon qu'on irrigue ou pas.
+
+- données $\mathcal{D}$: $(x_i,y_i)$ indicateur d'irriguation et expression pour le plant $i$
+- paramètres $\Theta$: $\mu$ moyenne globale, $\beta$ effet de l'irriguation, $\sigma^2$ variance des erreurs
+- hypothèses: ...
+- vraisemblance $\mathcal{L}(\Theta) = p(\mathcal{D} | \Theta)$:
+
+$\forall i, \; y_i = \mu + \beta x_i + \epsilon_i$ avec $\epsilon_i \overset{iid}{\sim} \mathcal{N}(0, \sigma^2)$
+
+- estimer par maximum de vraisemblance l'effet de l'irriguation sur l'expression du gène, $\hat{\beta}$, et son erreur standard, $s$
+
+
+## Estimation de paramètre
+
+Procédure générique: maximum de vraisemblance
+
+> - vraisemblance: $\mathcal{L}(\Theta) = \prod_{i=1}^N p(y_i | x_i, \mu, \beta, \sigma)$
+> - maximisation: $\frac{\partial \mathcal{L}}{\partial \beta}(\hat{\beta}) = 0$
+> - estimation: $\hat{\beta} = \frac{\sum_i (x_i - \bar{x})(y_i - \bar{y})}{\sum_i (x_i - \bar{x})^2}$
+
+> - estimateur fréquentiste: $B = \frac{\sum_i (x_i - \bar{x})(Y_i - \bar{Y})}{\sum_i (x_i - \bar{x})^2}$
+> - $E[B] = \beta$ et $V[B] = \frac{\sigma^2}{\sum_i (x_i - \bar{x})^2} \Rightarrow s^2 = \frac{1}{N - 2} \frac{\sum_i (y_i - \hat{y}_i)^2}{\sum_i (x_i - \bar{x})^2}$
+
+> - hypothèse: erreurs Normales $\Rightarrow \; Y_i \sim \mathcal{N} \; \Rightarrow \; B \sim \mathcal{N}$
+
+
+## Test d'hypothèse
+
+> - hypothèse nulle, $H_0$: "$\beta = 0$"
+
+> - statistique de test (Wald): $Z | H_0 = \frac{B}{\sqrt{Var(B)}} \; \sim \mathcal{N}(0, 1)$
+
+> - réalisation: $z = \frac{\hat{\beta}}{s}$
+
+> - probabilité critique: $p = P(Z \ge z | H_0)$
+
+> - [Wald](http://www.ats.ucla.edu/stat/mult_pkg/faq/general/nested_tests.htm): approxime LRT mais équivalent asymptotiquement
+> - Z-score: perte d'info de $(\hat{\beta},s)$ à $z$
+
+
+## Simuler un petit jeu de données
+
+```{r simul_simple}
+set.seed(1859)
+N <- 100
+x <- rbinom(n=N, size=2, prob=0.3)
+mu <- 4
+pve <- 0.4 # = var(x beta) / var(y)
+sigma <- 1
+(beta <- sigma * sqrt(pve / ((1 - pve) * var(x))))
+e <- rnorm(n=N, mean=0, sd=sigma)
+y <- mu + beta * x + e
+```
+
+## Faire l'inférence (built-in)
+
+```{r infer_simple_builtin, echo=FALSE}
+res <- lm(y ~ x); summary(res)
+(sigma.hat <- sqrt((1/(N-2) * sum(res$residuals^2))))
+```
+
+## Faire l'inférence (custom, estimation)
+
+```{r infer_simple_custom_estim}
+(beta.hat <- ((t(x) %*% y - N * mean(x) * mean(y)) /
+                (t(x) %*% x - N * mean(x)^2))[1,1])
+(sigma.hat <- sqrt((1/(N-2) * sum(res$residuals^2))))
+(se.beta.hat <- sqrt(sigma.hat^2 /
+                       (t(x) %*% x - N * mean(x)^2)[1,1]))
+```
+
+## Faire l'inférence (custom, test)
+
+```{r infer_simple_custom_test}
+(z.score <- beta.hat / se.beta.hat)
+(pvalue <- 2 * pt(q=z.score, df=N-2, lower.tail=FALSE))
+(pvalue <- 2 * pnorm(q=z.score, mean=0, sd=1, lower.tail=FALSE))
+```
+
+## Visuellement
+
+```{r plot_simple, echo=FALSE}
+plot(x=0, type="n", xlim=range(x), ylim=range(y), xaxt="n", las=1,
+     xlab="predictor (e.g. genotype as allele dosage)",
+     ylab="outcome (e.g. phenotype)",
+     main="Simple linear regression")
+axis(side=1, at=c(0,1,2))
+for(i in unique(x))
+  points(x=jitter(x[x == i]), y=y[x == i], col=i+1, pch=19)
+abline(a=coefficients(res)[1], b=coefficients(res)[2])
+```
+
+
+## Significativité de l'association
+
+Si l'hypothèse nulle est fausse, on s'attend à ce que la proba critique soit faible, donc on rejette $H_0$ si $p \le \text{seuil}$, mais lequel?
+
+\medskip
+
+Plusieurs cas possibles:
+
+\begin{tabular}{ l  | c c}
+& garder $H_0$ & rejeter $H_0$ \\
+\hline
+$H_0$ vraie & VN & \alert{FP} \\
+$H_0$ fausse & FN & VP \\
+\end{tabular}
+
+\medskip
+
+On veut généralement limiter la proba, notée $\alpha$, d'avoir un faux positif (erreur de type I).
+
+Comme, sous $H_0$, la proba critique suit une loi Uniforme sur $[0, 1]$, on a donc: $P(p \le \text{seuil} | H_0) = \text{seuil}$.
+
+$\Rightarrow$ on choisit de rejeter $H_0$ si $p \le \alpha$, par ex le fameux $5$\%
+
+
+## Point de vue bayésien
+
+facteur de bayes: $\text{BF} = \frac{P(\mathcal{D} | H_0)}{P(\mathcal{D} | H_1)} = \frac{\int p(\Theta_0) \, p(\mathcal{D} | \Theta_0) \, \text{d} \Theta_0}{\int p(\Theta_1) \, p(\mathcal{D} | \Theta_1) \, \text{d} \Theta_1}$
+
+- garder $H_0$ si $\frac{P(H_0 | \mathcal{D})}{P(H_1 | \mathcal{D})} = \text{BF} \, \frac{P(H_0)}{P(H_1)} < \frac{\text{coût}_{II}}{\text{coût}_{I}}$
+
+- difficultés: intégration, prior, seuil
+
+\medskip
+
+Idée (Johnson, Wakefield, Wen & Stephens): remplacer la vraisemblance $\boldsymbol{y} | \Theta$ par $\hat{\beta} | \beta \sim \mathcal{N}(\beta, s^2)$
+
+- $BF \approx ABF = \sqrt{\frac{s_0^2 + s^2}{s^2}} \exp \left( - \frac{z^2}{2} \frac{s_0^2}{s_0^2 + s^2} \right)$ avec $\beta \sim \mathcal{N}(0,s_0^2)$
+
+Pour un $N$ donné et un $s_0^2$ peu informatif, choisir $P(H_0)$ (ex. $0.5$) et $\frac{\text{coût}_{II}}{\text{coût}_{I}}$ (ex. $1$)  permet de choisir le seuil sur le Z-score, et donc sur la proba critique, *seuil qui dépend maintenant de la puissance du test (via nb d'échantillons, $N$), quel que soit le nombre de tests*...
+
+
+# Tester de multiples "associations potentielles"
+
+## Une analyse typique de génomique
+
+> 1. génotyper $N$ individus à $P$ marqueurs, et phénotyper ces individus; ou bien mesurer l'expression de $P$ gènes chez $N$ individus avec ou sans traitement
+
+> 2. estimer chaque effet par maxlik, $\hat{\beta}_j$ (erreur standard $s_j$)
+
+> 3. les transformer en scores standardisés, $z_j = \frac{\hat{\beta}_j}{s_j}$
+
+> 4. calculer les valeurs critiques, $p_j$, en supposant $Z_j | H_0 \sim \mathcal{N}(0, 1)$
+
+
+## Cas possibles (tableau)
+
+\begin{tabular}{ l  | c c r}
+& garder $H_0$ & rejeter $H_0$ & \\
+\hline
+$H_0$ vraie & VN & FP & $P_0$ \\
+$H_0$ fausse & FN & VP & $P_1$ \\
+& & R & $P$
+\end{tabular}
+
+
+## Problème
+
+Avec la même procédure que précédemment, le nombre de faux positifs augmente linéairement avec le nombre de tests...
+
+Par exemple, même si $H_0$ est toujours fausse ($P_0 = P$) et $\alpha = 5\%$:
+
+- $P = 500 \Rightarrow E[FP] = 25$
+
+- $P = 1000 \Rightarrow E[FP] = 50$
+
+- $P = 2000 \Rightarrow E[FP] = 100$
+
+
+## Family-Wise Error rate (FWER)
+
+A contrôler, par exemple via la procédure de Bonferroni:
+\begin{align*}
+FWER | \mathcal{H}_0 = \Pr(FP \ge 1 | \mathcal{H}_0) 
+&= \Pr(\bigcup_{j=1}^P \{p_j \le \alpha_j | H_{0j}\}) \\
+&\le \sum_j \Pr(p_j \le \alpha_j | H_{0j}) \\
+&\le \sum_j \alpha_j \; \le \; \alpha \; \text{ si } \forall j \; \alpha_j \le \alpha
+\end{align*}
+
+- en pratique: R> p.adjust(pvalues, "bonferroni")
+- FWER: critère (très) stringent (surtout si $P$ large)
+- Bonferroni: d'autant plus conservatif que tests corrélés
+
+
+## False Discovery rate (FDR)
+
+$FDR = E[FP / R]$ et, par définition, $FDR = 0$ si $R = 0$
+
+A contrôler, par exemple via la procédure de Benjamini-Hochberg:
+
+- en pratique: R> p.adjust(pvalues, "bh")
+
+\bigskip
+
+Remarquez: $FDR = \Pr(R > 0) \; E[FP / R | R > 0]$
+
+\bigskip
+
+- problème: contrôler le FDR peut se faire en diminuant $\Pr(R > 0)$ et non $E[FP / R | R > 0]$ ...
+
+- solution: contrôler le positive FDR: $pFDR = E[FP / R | R > 0]$
+
+
+## Cas possibles (graphique)
+
+```{r possible_cases, echo=FALSE}
+set.seed(1859); P <- 5000; P1 <- 500
+pvalues.0 <- runif(n=P-P1, min=0, max=1)
+pvalues.1 <- rbeta(n=P1, shape1=1, shape2=25)
+pvalues <- c(pvalues.0, pvalues.1)
+hist.pval.example <- function(show.msg=TRUE){
+  par(mar=c(5,4,1,1)+0.1)
+  hist(x=pvalues, breaks=50, col="grey", border="white", xlim=c(0,1),
+       xlab="probabilité critique", ylab="nombre de tests", las=1,
+       main="")
+  if(show.msg){
+    abline(v=0.2, lty=2)
+    text(x=0.22, y=275, labels=expression(seuil~alpha), adj=0, cex=1.5)
+    abline(h=90, lty=2)
+    text(x=0.7, y=45, labels="vrais négatifs", cex=1.5)
+    text(x=0.4, y=150, labels="faux négatifs", cex=1.5)
+    text(x=0.1, y=45, labels="faux\npositifs", cex=1.5)
+    text(x=0.1, y=135, labels="vrais\npositifs", cex=1.5)
+  }
+}
+hist.pval.example(TRUE)
+```
+
+
+## pFDR et modèle de mélange
+
+$\forall j, \; p_j = \pi_0 \, \mathcal{U}_{[0,1]} + (1 - \pi_0) \, f_1$
+
+\bigskip
+
+Exemple avec $\pi_0$ = `r (P-P1)/P`:
+
+\medskip
+
+```{r mixture, echo=FALSE, fig.width=8, fig.height=4}
+set.seed(1859)
+par(mfrow=c(1,2))
+hist(x=pvalues.0,
+     breaks=25, col="grey", border="white", xlim=c(0,1), las=1,
+     xlab="probabilité critique", ylab="nombre de tests",
+     main="Proba critiques sous H0")
+hist(x=pvalues.1,
+     breaks=10, col="grey", border="white", xlim=c(0,1), las=1,
+     xlab="probabilité critique", ylab="nombre de tests",
+     main="Proba critiques sous H1")
+```
+
+
+## Procédure de Storey
+
+$\widehat{pFDR}(\alpha) = \hat{\pi}_0 \, \frac{\alpha \, P}{\# \{p_j \le \alpha\}}$
+
+- $\hat{\pi}_0$: calculer avec les proba critiques proches de 1
+
+\bigskip
+
+Si on ne veut pas fixer le seuil $\alpha$ par avance, on peut calculer une $q$-value par test, cad le pFDR pour tous les tests aussi *ou plus* significatifs que le test en question (fréquentiste):
+
+- en pratique: R> qvalue(pvalues)
+
+
+## Application sur l'exemple
+
+```{r storey_example, echo=FALSE}
+hist.pval.example(FALSE)
+pv.b <- p.adjust(pvalues, "bonferroni")
+pv.bh <- p.adjust(pvalues, "BH")
+text(x=0.2, y=250, labels=paste0("seuil=0.05: #signif_Bf = ",
+                                   sum(pv.b <= 0.05)), cex=1.5)
+text(x=0.2, y=230, labels=paste0("seuil=0.2: #signif_Bf = ",
+                                   sum(pv.b <= 0.2)), cex=1.5)
+text(x=0.5, y=210, labels=paste0("seuil=0.05: #signif_BH = ",
+                                   sum(pv.bh <= 0.05)), cex=1.5)
+text(x=0.5, y=190, labels=paste0("seuil=0.2: #signif_BH = ",
+                                   sum(pv.bh <= 0.2)), cex=1.5)
+qv <- qvalue(p=pvalues)
+text(x=0.85, y=190, labels=bquote(hat(pi)[0] == .(format(qv$pi0, digits=3))),
+     cex=1.5)
+text(x=0.85, y=170, labels=paste0("FDR=0.05: #signif = ",
+                                   sum(qv$qvalues <= 0.05)), cex=1.5)
+text(x=0.85, y=150, labels=paste0("FDR=0.2: #signif = ",
+                                   sum(qv$qvalues <= 0.2)), cex=1.5)
+```
+
+
+## local FDR (lfdr)
+
+Proba qu'une certaine découverte est fausse à un seuil donné:
+
+$lfdr_j = \Pr(\beta_j = 0 | z_j)$
+
+- via le modèle de mélange en bayésien: $lfdr_j = \frac{\pi_0 \, f(z_j | \beta_j)}{f(z_j)}$
+
+\bigskip
+
+En pratique:
+
+- $p_j$ transformée: locfdr (Efron, mais archive CRAN)
+
+- $z_j$: mixfdr (Muralidharan, aussi archive CRAN)
+
+- $\hat{\beta}_j,s_j$: ashr (Stephens, dépôt GitHub)
+
+
+## False Sign rate (FSR)
+
+Gelman & Tuerlinckx (2000): "we do not believe that $\beta = 0$ is a reasonable possibility for continuous parameters"
+
+- type S error: wrongly identifying the sign of $\beta$ with confidence
+
+$\Pr(\text{type S error} \; | \; \text{claim with confidence})$
+
+$= \Pr(\text{sign}(\beta_j) \ne \text{sign}(\hat{\beta}_j) \; | \; 0 \notin \hat{\beta}_j \pm 1.96 \, s_j)$
+
+
+# Perspectives
+
+## Erreurs corrélées
+
+Vraisemblance: $\forall j, \; \boldsymbol{y} = \boldsymbol{1} \mu + \boldsymbol{x}_j \beta_j + Z \boldsymbol{u} + \boldsymbol{\epsilon}$
+
+- $\boldsymbol{u} \sim \mathcal{N}(\boldsymbol{0}, \sigma_a^2 K)$
+
+- $\boldsymbol{\epsilon} \sim \mathcal{N}(\boldsymbol{0}, \sigma^2 I)$
+
+- $Cov[\boldsymbol{u}, \boldsymbol{\epsilon}] = 0$
+
+\bigskip
+
+Utiliser le logiciel GEMMA (Zhou & Stephens, 2012):
+
+- pour chaque SNP: $\hat{\beta}_j$ et $s_j$, statistique de Wald, p-value
+
+- q-value, etc
+
+
+## Analyser tous les SNPs dans le même modèle
+
+Vraisemblance: $\boldsymbol{y} = \boldsymbol{1} \mu + X \boldsymbol{\beta} + \boldsymbol{\epsilon}$ avec $\boldsymbol{\epsilon} \sim \mathcal{N}(\boldsymbol{0}, \sigma^2 I)$
+
+Prior: $\boldsymbol{\beta} \sim \mathcal{N}(\boldsymbol{0}, \sigma_\beta^2 I)$
+
+\bigskip
+
+Exemple de la taille chez l'homme:
+
+- Yang et coll. (Nat Genet, 2010)
+
+- Wood et coll. (Nat Genet, 2014)
+
+\medskip
+
+Essayer le logiciel GCTA (maintenu par le labo de Peter Visscher).
+
+
+## Sélectionner les SNPs
+
+Vraisemblance: $\boldsymbol{y} = \boldsymbol{1} \mu + X \boldsymbol{\beta} + \boldsymbol{\epsilon}$ avec $\boldsymbol{\epsilon} \sim \mathcal{N}(\boldsymbol{0}, \sigma^2 I)$
+
+Prior: $\boldsymbol{\beta} \sim \pi_0 \, \delta_0 + (1 - \pi_0) \, \mathcal{N}(\boldsymbol{0}, \sigma_\beta^2 I)$
+
+$\Rightarrow lfdr_j = \Pr(\beta_j = 0 \, | \, \boldsymbol{y}, X)$
+
+\bigskip
+
+- BVSR: Guan & Stephens (Ann Appl Stat, 2011); comparaison avec LASSO; logiciel piMASS
+
+- étendu par BSLMM: Zhou, Carbonetto & Stephens (PLoS Genet, 2013); logiciel GEMMA
+
+
+## Tester différentes combinaisons de SNPs
+
+- MLMM: Segura et coll. (Nat Genet, 2012)
+
+- BLMM: Wen (Biostat, 2015)
+
+
+## Remerciements
+
+- Matthew Stephens
+
+- Xiaoquan Wen, Xiang Zhou et Heejung Shim
+
+
+# Annexes
+
+##
+
+```{r info}
+print(sessionInfo(), locale=FALSE)
+```
