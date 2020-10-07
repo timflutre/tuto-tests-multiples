@@ -2,10 +2,13 @@
 title: "Tutoriel sur les tests multiples (et au-delà)"
 author: "Timothée Flutre"
 date: '`r as.character(format(Sys.Date(), format="%d/%m/%Y"))`'
+lang: "fr"
+colorlinks: true
 output:
   beamer_presentation:
     slide_level: 2
     toc: true
+    keep_tex: yes
 ---
 
 <!--
@@ -401,6 +404,10 @@ text(x=0.85, y=150, labels=paste0("FDR=0.2: #signif = ",
                                    sum(qv$qvalues <= 0.2)), cex=1.5)
 ```
 
+## marginal FDR (mFDR)
+
+Voir Breheny (2019) et le paquet \href{https://cran.r-project.org/package=ncvreg}{R/ncvreg}.
+
 
 ## local FDR (lfdr)
 
@@ -418,7 +425,7 @@ En pratique:
 
 - $z_j$: mixfdr (Muralidharan, aussi archive CRAN)
 
-- $\hat{\beta}_j,s_j$: ashr (Stephens, dépôt GitHub)
+- $\hat{\beta}_j,s_j$: \href{https://cran.r-project.org/package=ashr}{R/ashr} (Stephens, dépôt GitHub)
 
 
 ## False Sign rate (FSR)
@@ -446,13 +453,13 @@ Vraisemblance: $\forall j, \; \boldsymbol{y} = \boldsymbol{1} \mu + \boldsymbol{
 
 \bigskip
 
-Utiliser le logiciel GEMMA (Zhou & Stephens, 2012):
+Utiliser le logiciel \href{https://github.com/genetics-statistics/GEMMA}{GEMMA} (Zhou & Stephens, 2012):
 
 - pour chaque SNP: $\hat{\beta}_j$ et $s_j$, statistique de Wald, p-value
 
 - q-value, etc
 
-Sinon le paquet R QTLRel.
+Sinon le paquet \href{https://cran.r-project.org/package=MM4LMM}{R/MM4LMM}.
 
 
 ## Analyser tous les SNPs dans le même modèle
@@ -473,7 +480,7 @@ Exemple de la taille chez l'homme:
 
 Essayer le logiciel GCTA (maintenu par le labo de Peter Visscher).
 
-Sinon le paquet R rrBLUP.
+Sinon les paquets \href{https://cran.r-project.org/package=rrBLUP}{R/rrBLUP} ou \href{https://cran.r-project.org/package=glmnet}{R/glmnet}.
 
 
 ## Sélectionner les SNPs
@@ -486,16 +493,14 @@ $\Rightarrow lfdr_j = \Pr(\beta_j = 0 \, | \, \boldsymbol{y}, X)$
 
 \bigskip
 
-- BVSR: Guan & Stephens (Ann Appl Stat, 2011); comparaison avec LASSO; logiciel piMASS
+- BVSR: Guan & Stephens (Ann Appl Stat, 2011); comparaison avec LASSO; logiciel piMASS et paquet \href{https://cran.r-project.org/package=varbvs}{R/varbvs}
 
 - étendu par BSLMM: Zhou, Carbonetto & Stephens (PLoS Genet, 2013); logiciel GEMMA
 
 
 ## Tester différentes combinaisons de SNPs
 
-- MLMM: Segura et coll. (Nat Genet, 2012)
-
-- BLMM: Wen (Biostat, 2015)
+- BLMM: Wen (Biostat, 2015); comparaison avec MLMM de Segura et coll. (Nat Genet, 2012)
 
 
 ## Remerciements
